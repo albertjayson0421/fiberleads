@@ -1,0 +1,13 @@
+{
+ "allowlisted": false,
+ "authorization_reference": "",
+ "authorized_host": "",
+ "authorized_rate_per_s": 0,
+ "authorized_concurrency": 0,
+ "egress_source_ips": [],
+ "auth": {
+  "scheme": "",
+  "reference": "vault"
+ },
+ "forbid_behavioral_token_fallback": true
+}

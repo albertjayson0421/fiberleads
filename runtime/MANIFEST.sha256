@@ -1,0 +1,23 @@
+# CANDIDATE RELEASE MANIFEST (release_candidate_2026-09-10, rev6 — recovery-enabled)
+# rev6: bounded startup exit-selection retry in scheduler actor (find a working US exit; NOT post-block rotation).
+# rev5 base: A1-A4 sim-verified + locked-runtime (104 tests). ACCESS_OBSERVED_WORKING via canary 2026-09-10.
+# rev7 (2026-09-11): fleet_scheduler EXIT-ROTATION recovery — proactive rotate every --exit-budget(10) successful searches; on 403/429 requeue+rotate exit (fresh sessid+token via Actor.open) instead of die; bounded by --rot-cap(6) + fleet breaker; persist_retry now captures real 403/429 body+headers. Sim 15/15. Only fleet_scheduler.py changed; 5 gated modules unchanged.
+# component  sha256  role
+b4370f2abd140fb8e69badf56223a16c71b08dc721aa0f4030b8c74614126d41  fleet_pipeline.py
+17588abc8c41c96157aa202f17c170ed79abc8dcc80d544a773c4627ded34eab  fleet_actor_v2.py
+c89f8c8448c5a22909a9744032c7d2d0de5c0ab5454c478f61f8937c722050ff  fleet_scheduler.py
+4f6522f7dc25045e22f0995b035c6df0c9928114e7ee83ca1eb9790b707e8a7e  product_stage.py
+c4cfaa93d69b5f1dde58fc9641bfb0b113018863c2bbdb8297f600833e5e30ff  engine/classifier.py
+c02e20cfc854de274be3ea8ef5017ea94ea4a158024e4945adb8e833abfe1ecb  engine/carrier_uqual.py
+0a1e3bf36bb021456270ace341b45875f39f6270800174a17eef47dfa31c1d3f  engine/billing_mapping.py
+aeaa910ae9c489c8718f815ec30a571da0368b94e205ccc03b9780387869ff3a  engine/endpoint_guard.py
+7be9589733b19596677c83c88e29eefded557ad70fa7178793409cdc63377211  engine/egress_guard.py
+0bb2b6c679fe0e483bf6c9916c2f98973c188422004992eb64624e3ffce4c633  engine/fetch_guard.py
+b32f4cbb456ffee880f3c661372689ac83b5505fdcf80e44efe1bae198dc9fdd  engine/durable_store.py
+f42332b951564528dc91e301a1e45030de1c6b8ff933db5e3e2a1dedb6db2c07  engine/failure_handling.py
+b08f2b01b2e91ecc226698651f3086793aa63059f5138cc046ebcb7373ebe75d  engine/proxy_config.py
+387608f0e8c0d635581d7932a88c4e856d8b0900f5f8c3a9a18002ebefdf2232  engine/reclassify.py
+0b4556105b69598082d198593aa267946567275ce21dea20200bb445deb04575  config/billing_config.json
+8741d490b4b6eff1c03f87d3fd3bbbf82e3cef990bcda774ef8a84e368044020  config/uqual.txt
+e37425b10bbffa2caa0483fd29d91e3fd07152b86cf1653f8f59d37e4dd8f204  residential.json
+15d8e73387ff46b365f89e8cdbf21a1a3d10169bdf93547df1a9f9aa3be47d37  DEPLOY_LOCK.txt

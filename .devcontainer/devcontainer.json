@@ -1,0 +1,18 @@
+{
+  "name": "fiberleads-dev",
+  "build": { "dockerfile": "Dockerfile", "context": ".." },
+  "remoteUser": "dev",
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python"],
+      "settings": { "python.defaultInterpreterPath": "/usr/local/bin/python" }
+    }
+  },
+  "// SECURITY": [
+    "Secrets are never in this image or repo. Provide dev credentials at runtime,",
+    "e.g. an owner-issued .env (gitignored) or, on GCP, mounted from Secret Manager.",
+    "This container matches the fleet runtime (Python 3.11.2 / curl_cffi 0.16.3) so",
+    "tests behave the same as production."
+  ],
+  "postCreateCommand": "python -c \"import curl_cffi,sys;print('runtime OK', sys.version.split()[0], 'curl_cffi', curl_cffi.__version__)\""
+}

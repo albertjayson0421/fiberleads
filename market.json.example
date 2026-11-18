@@ -1,0 +1,13 @@
+{
+  "__doc__": "Per-market/config overrides for the pipeline. Copy to market.json at the repo root (or point $FL_MARKET at a copy). Every key is OPTIONAL; pipeline/flpaths.py falls back to repo-relative defaults when a key is absent. This is CONFIG, not a secret - safe to commit a real market.json if you want. Relative paths are resolved against the repo root.",
+
+  "data_dir": "./data",
+  "out_dir": "./data/deliverable",
+  "ledgers_dir": "./data/ledgers",
+  "prior_delivered": "./data/prior_delivered",
+
+  "__market_checks__": "Optional per-market verification (used by verify_deliverable). Omit any to skip that check, which is what makes the verifier market-agnostic.",
+  "state": "IA",
+  "target_zips": ["51001", "52556"],
+  "bbox": [40.30, 43.60, -96.75, -90.05]
+}

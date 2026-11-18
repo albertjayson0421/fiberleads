@@ -1,0 +1,15 @@
+{
+  "pools": [
+    {
+      "name": "dataimpulse_p1",
+      "host": "PROXY_HOST",
+      "port": 0,
+      "user": "PROXY_USER",
+      "pass": "PROXY_PASS",
+      "style": "sticky",
+      "gb_left": 0,
+      "tier": "residential",
+      "direct": false
+    }
+  ]
+}

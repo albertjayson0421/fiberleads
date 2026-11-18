@@ -1,0 +1,13 @@
+# Force LF line endings on checkout for every platform.
+# Without this, a Windows clone converts files to CRLF, which changes their bytes and
+# makes runtime/fleet_scheduler.py::gate_hashes() refuse to start (the SHA-256 in
+# runtime/production_manifest.json is computed on the canonical LF bytes).
+* text=auto eol=lf
+
+# Explicit for the file types we hash / execute, so intent is unambiguous.
+*.py text eol=lf
+*.sh text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.example text eol=lf

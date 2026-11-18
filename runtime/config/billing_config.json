@@ -1,0 +1,7 @@
+{
+  "billing_status_mapping": {
+    "existing_values": ["A"],
+    "new_values": ["N"],
+    "evidence_ref": "tx_ledger_recovered.db evidence.raw_json primaries, 2026-09-03..07: billingStatus takes exactly two observed values, A=496 (318 FIBER) and N=1729 (604 FIBER); 923 FIBER primaries -> A=318, N=604, missing=1. A=existing is the deployed engine's measured rule (carrier_uqual existing_customer) and the live positive control 281 FURY DR INMAN SC returned A. N=not-existing is the only other observed code and is INFERRED from that; it is validated per merge correction #4 by the live control set (known existing + candidate new premise) recorded in TRACE/live_controls.txt — a single control verifies that case, not universal semantics. The one FIBER row with no billingStatus stays EXISTING_STATUS_MISSING_HOLD."
+  }
+}

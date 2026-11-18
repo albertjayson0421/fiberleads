@@ -1,0 +1,76 @@
+# ============================================================================
+# FiberLeads code repo .gitignore
+# Rename to `.gitignore` at the repo root. Keeps SECRETS and DATA out of git.
+# Pair with GitHub secret-scanning + push-protection (blocks secret commits).
+# ============================================================================
+
+# ---- SECRETS (never commit) ------------------------------------------------
+residential.json
+**/residential.json
+**/config/uqual.txt
+uqual.txt
+fleet_key
+fleet_key.*
+*.pem
+*_rsa
+*_ed25519
+id_*
+.env
+.env.*
+*.env
+**/live_client_config.json
+*credential*
+*secret*
+*token*
+*.key
+
+# ---- LARGE DATA / GENERATED ARTIFACTS (not source) -------------------------
+*.db
+*.db.bad
+*.sqlite
+node_seed.db
+all_owed.jsonl
+part_*.jsonl
+*_bundle.tar.gz
+node_bundle.tar.gz
+
+# universe / sweep / ledger artifacts
+iowa_all.jsonl
+iowa_*_{kept,held,dropped}.jsonl
+*_results.jsonl
+*_ledger*.jsonl
+*_input.jsonl
+priced_leads.jsonl
+_immutable_snapshots/
+_interim_versions/
+collected/
+
+# deliverables (client data — never in the code repo)
+*.csv
+*.xlsx
+deliverable/
+delivery/
+
+# ---- LOCAL / BUILD JUNK ----------------------------------------------------
+__pycache__/
+*.pyc
+*.out
+*.log
+.DS_Store
+.venv/
+venv/
+scratchpad/
+
+# ---- KEEP (whitelist config that is NOT secret) ----------------------------
+!config/billing_config.json
+!production_manifest.json
+!MANIFEST.sha256
+!DEPLOY_LOCK.txt
+!requirements.txt
+
+# stray logs / leftover data dirs
+*.err
+04_Data/
+
+# stray footprint cache written into repo dir by a run redirect — never commit
+/1/
