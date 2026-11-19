@@ -140,6 +140,11 @@ async def main():
     print("[end-to-end readiness gate through real scheduler]")
     t_readiness_gate_real()
 
+if os.name == "nt":
+    asyncio.set_event_loop_policy(
+        asyncio.WindowsSelectorEventLoopPolicy()
+    )
+
 asyncio.run(main())
 print("\nRESULT: %d passed, %d failed" % (P, F))
 sys.exit(1 if F else 0)
