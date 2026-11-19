@@ -1,0 +1,27 @@
+[35mdocs/DEV_ISSUES.md[m[36m:[m[32m120[m[36m:[m- `pipeline/[1;31mremediate2[m.py` already implements the proven escalation ladder (ZIP→USPS city,
+[35mdocs/DEV_ISSUES.md[m[36m:[m[32m128[m[36m:[m- [ ] Extract the cheap, high-yield corrections from `[1;31mremediate2[m.py` and apply them **before
+[35mdocs/DEV_ISSUES.md[m[36m:[m[32m133[m[36m:[m- [ ] Keep `[1;31mremediate2[m.py` as the backstop for what the first ask still misses.
+[35mdocs/WEEKEND_PLAN.md[m[36m:[m[32m61[m[36m:[m(`[1;31mremediate2[m.py`) already recovers many of these *after the fact*; moving that correction to
+[35mdocs/WEEKEND_PLAN.md[m[36m:[m[32m65[m[36m:[m1. Study `[1;31mremediate2[m.py`'s escalation ladder (ZIP→USPS city, without-city, candidate mining
+[35mdocs/WEEKEND_PLAN.md[m[36m:[m[32m73[m[36m:[m   vs. after on the same address set. Keep `[1;31mremediate2[m.py` as the backstop.
+[35mdocs/briefs/2026-09-13_P0_clean_clone.md[m[36m:[m[32m29[m[36m:[m   remediate.py:25, [1;31mremediate2[m.py:24, cf_watch.py:17, enr_probe.py:18, stable_client_test.py:13).
+[35mdocs/briefs/2026-09-13_P0_clean_clone.md[m[36m:[m[32m105[m[36m:[m    [1;31mremediate2[m (engine path + lazy uqual.txt with .example fallback + residential.json/.example + billing_config
+[35mpipeline/_legacy/README.md[m[36m:[m[32m21[m[36m:[mKept as reusable stages in pipeline/: build_nc_statewide, residential_run, [1;31mremediate2[m,
+[35mpipeline/finalize2.py[m[36m:[m[32m2[m[36m:[m-> [1;31mremediate2[m city-fix). Every address now has a real terminal answer. 4 live columns:
+[35mpipeline/finalize2.py[m[36m:[m[32m32[m[36m:[m    # latest resolution wins: [1;31mremediate2[m (city-fix) > remediate1 > sweep
+[35mpipeline/join_new.py[m[36m:[m[32m2[m[36m:[mbootstraps it (curl_cffi + merge_sr bundle + [1;31mremediate2[m + zip_city), then gives the ready
+[35mpipeline/join_new.py[m[36m:[m[32m21[m[36m:[m    """install curl_cffi + deploy merge_sr + [1;31mremediate2[m + zip_city. Returns True on success."""
+[35mpipeline/join_new.py[m[36m:[m[32m24[m[36m:[m        subprocess.run(SCP+["/Users/masani/iowa_pull/[1;31mremediate2[m.py","fl@%s:~/[1;31mremediate2[m.py"%ip], check=True, timeout=30)
+[35mpipeline/join_new.py[m[36m:[m[32m77[m[36m:[m    cmd = ("cd ~ && FL_NORM=abbrev setsid nohup python3 -u [1;31mremediate2[m.py ~/tx2_in.jsonl ~/tx2_out.jsonl "
+[35mpipeline/remcollect.py[m[36m:[m[32m24[m[36m:[m                          '$(pgrep -f "[1;31mremediate2[m.py ~/rem_in">/dev/null&&echo IA_RUN||echo IA_DONE)|'
+[35mpipeline/remcollect.py[m[36m:[m[32m25[m[36m:[m                          '$(pgrep -f "[1;31mremediate2[m.py ~/tx_in">/dev/null&&echo TX_RUN||echo TX_STOP)"'), 30)
+[35mpipeline/remed_dispatch.py[m[36m:[m[32m27[m[36m:[m        if not _retry(SCP + ["/Users/masani/iowa_pull/[1;31mremediate2[m.py", "%s:~/[1;31mremediate2[m.py" % box], 60):
+[35mpipeline/remed_dispatch.py[m[36m:[m[32m28[m[36m:[m            print("  [%2d] %-22s SKIP (scp [1;31mremediate2[m.py failed)" % (i, box), flush=True); continue
+[35mpipeline/remed_dispatch.py[m[36m:[m[32m32[m[36m:[m        cmd = ("cd ~ && FL_NORM=abbrev setsid nohup python3 -u [1;31mremediate2[m.py ~/rem_in.jsonl ~/rem_out.jsonl "
+[35mpipeline/remed_dispatch.py[m[36m:[m[32m43[m[36m:[m        out = subprocess.run(SSH + [box, "pgrep -f [1;31mremediate2[m.py >/dev/null && echo A || echo D; wc -l < ~/rem_out.jsonl 2>/dev/null; tail -1 ~/rem.log 2>/dev/null"],
+[35mpipeline/remediate2.py[m[36m:[m[32m8[m[36m:[mUsage: [1;31mremediate2[m.py <in.jsonl> <out.jsonl> [--threads 32]"""
+[35mpipeline/remediate2.py[m[36m:[m[32m170[m[36m:[mprint("[1;31mREMEDIATE2[m_DONE %d in %.1f min -> %s" % (len(leads), (time.time() - t0) / 60, _OUT))
+[35mpipeline/tx_dispatch.py[m[36m:[m[32m1[m[36m:[m"""Texas sweep dispatcher — runs [1;31mremediate2[m on the TX universe IN PARALLEL with the Iowa
+[35mpipeline/tx_dispatch.py[m[36m:[m[32m26[m[36m:[m        _retry(SCP + ["/Users/masani/iowa_pull/[1;31mremediate2[m.py", "%s:~/[1;31mremediate2[m.py" % box], 60)
+[35mpipeline/tx_dispatch.py[m[36m:[m[32m29[m[36m:[m        cmd = ("cd ~ && FL_NORM=abbrev setsid nohup python3 -u [1;31mremediate2[m.py ~/tx_in.jsonl ~/tx_out.jsonl "
+[35mpipeline/tx_dispatch.py[m[36m:[m[32m40[m[36m:[m        r = subprocess.run(SSH + [box, "pgrep -f '[1;31mremediate2[m.py ~/tx_in'>/dev/null&&echo A||echo D; wc -l < ~/tx_out.jsonl 2>/dev/null"],

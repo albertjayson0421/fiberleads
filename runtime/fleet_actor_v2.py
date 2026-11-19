@@ -181,38 +181,157 @@ class M:
     exact_match = non_exact = 0
     s401 = s403 = s429 = transport = watchdog = 0
     active = warmed = completed = quarantined = watchdog_stalled = 0
-    slat = collections.deque(maxlen=4000); plat = collections.deque(maxlen=4000); alat = collections.deque(maxlen=4000)
-    by_class = {}; seen = {}; per_actor = []
-    ledger_fp = None; retry_fp = None
+    
+    slat = collections.deque(maxlen=4000);
+    plat = collections.deque(maxlen=4000);
+    alat = collections.deque(maxlen=4000)
+    
+    by_class = {};
+    seen = {};
+    done = set()
+    per_actor = []
+    retry_keys = set()
+
+    ledger_fp = None;
+    retry_fp = None;
 
     @classmethod
-    def total_search(cls): return cls.primary_search + cls.remediation_search
+    def reset(cls):
+        """Reset all in-memory accounting state for one execution."""
+        counters = (
+            "consumed", "counted", "other_durable", "unresolved",
+            "retryable", "dups", "rejected",
+            "prewarm_auth", "reauth", "primary_search",
+            "remediation_search", "product", "exact_match", "non_exact",
+            "s401", "s403", "s429", "transport", "watchdog",
+            "active", "warmed", "completed", "quarantined",
+            "watchdog_stalled",
+        )
+        for name in counters:
+            setattr(cls, name, 0)
+
+        cls.slat = collections.deque(maxlen=4000)
+        cls.plat = collections.deque(maxlen=4000)
+        cls.alat = collections.deque(maxlen=4000)
+
+        cls.by_class = {}
+        cls.seen = {}
+        cls.done = set()
+        cls.retry_keys = set()
+        cls.per_actor = []
+
+        cls.ledger_fp = None
+        cls.retry_fp = None
+
+    @classmethod
+    def total_search(cls):
+        return cls.primary_search + cls.remediation_search
 
 
 def record_retryable(job, phase, actor, exc):
-    M.retryable += 1
+    ck = job.get("ck")
+
+    # A terminal decision always takes precendence over a retry.
+    if ck is None or ck in M.done or ck in M.seen or ck in M.retry_keys:
+        return
+
+    row = {
+        "ck": ck,
+        "status": "UNRESOLVED_RETRYABLE",
+        "phase": phase,
+        "actor": actor.idx,
+        "plan": actor.plan,
+        "exception": (
+            type(exc).__name__
+            if isinstance(exc, BaseException)
+            else str(exc)
+        ),
+    }
+
     if M.retry_fp is not None:
-        M.retry_fp.write(json.dumps({"ck": job.get("ck"), "status": "UNRESOLVED_RETRYABLE", "phase": phase,
-                                     "actor": actor.idx, "plan": actor.plan,
-                                     "exception": type(exc).__name__ if isinstance(exc, BaseException) else str(exc)}) + "\n")
+        M.retry_fp.write(json.dumps(row) + "\n")
         M.retry_fp.flush()
+
+    M.retry_keys.add(ck)
+    M.retryable += 1
 
 
 def record_final(ck, cls, actor, ev):
+    if ck in M.done:
+        return
+
     if ck in M.seen:
-        M.dups += 1; return
-    M.seen[ck] = cls; M.by_class[cls] = M.by_class.get(cls, 0) + 1
-    if cls in COUNTED: M.counted += 1
-    else: M.other_durable += 1
+        M.dups += 1
+        return
+
+    row = {
+        "ck": ck,
+        "class": cls,
+        "counted": cls in COUNTED,
+        "actor": actor.idx,
+        "plan": actor.plan,
+        "t": round(ev["t"], 3),
+        "evidence_sha256": ev["evidence_sha256"],
+    }
+
+    if ev.get("lead") is not None:
+        row["lead"] = ev["lead"]
+        row["observed_at_utc"] = _dt.datetime.now(
+            _dt.timezone.utc
+        ).isoformat()
+
     if M.ledger_fp is not None:
-        row = {"ck": ck, "class": cls, "counted": cls in COUNTED,
-               "actor": actor.idx, "plan": actor.plan, "t": round(ev["t"], 3),
-               "evidence_sha256": ev["evidence_sha256"]}
-        if ev.get("lead") is not None:
-            row["lead"] = ev["lead"]
-            row["observed_at_utc"] = _dt.datetime.now(_dt.timezone.utc).isoformat()
         M.ledger_fp.write(json.dumps(row) + "\n")
         M.ledger_fp.flush()
+
+    # A terminal record supersedes any retry recorded earlier this run.
+    if ck in M.retry_keys:
+        M.retry_keys.remove(ck)
+        M.retryable = max(0, M.retryable - 1)
+
+    M.seen[ck] = cls
+    M.by_class[cls] = M.by_class.get(cls, 0) + 1
+
+    if cls in COUNTED:
+        M.counted += 1
+    else:
+        M.other_durable += 1
+
+
+def record_rejected(job, actor, reason, elapsed):
+    ck = job.get("ck")
+
+    if ck is None or ck in M.done:
+        return
+
+    if ck in M.seen:
+        M.dups += 1
+        return
+
+    row = {
+        "ck": ck,
+        "class": "COMPLETE_REJECTED",
+        "counted": False,
+        "reason": reason,
+        "actor": actor.idx,
+        "plan": actor.plan,
+        "t": round(elapsed, 3),
+    }
+
+    if M.ledger_fp is not None:
+        M.ledger_fp.write(json.dumps(row) + "\n")
+        M.ledger_fp.flush()
+
+    # A completed rejection supersedes an earlier retry.
+    if ck in M.retry_keys:
+        M.retry_keys.remove(ck)
+        M.retryable = max(0, M.retryable - 1)
+
+    M.seen[ck] = "COMPLETE_REJECTED"
+    M.rejected += 1
+    M.by_class["COMPLETE_REJECTED"] = (
+        M.by_class.get("COMPLETE_REJECTED", 0) + 1
+    )
 
 
 class AdmissionController:
@@ -247,6 +366,7 @@ class Actor:
     def __init__(self, idx, plan_idx):
         self.idx = idx; self.plan_idx = plan_idx; self.s = None; self.tok = None; self.plan = None; self.alive = False
         self.device_id = str(_uuid.uuid4())     # one stable device identity for this actor's lifetime
+        self.current_job = None
 
     def _h(self, bearer):
         """XHR base + Authorization + the 4 native deterministic headers (x-resource-id/session-id
@@ -485,66 +605,188 @@ async def _handle_search(actor, job, j, old, new, sd, pd_, ctl, is_remediation):
             else:
                 # fiber-exact whose product READ FINE but populated no priced plan -> a real completed
                 # non-lead answer (NOT a "we asked badly" case). Retained as COMPLETE_REJECTED.
-                M.seen[job["ck"]] = "COMPLETE_REJECTED"; M.rejected += 1
-                M.by_class["COMPLETE_REJECTED"] = M.by_class.get("COMPLETE_REJECTED", 0) + 1
-                if M.ledger_fp is not None:
-                    reason = det.get("validationResult") or outcome
-                    M.ledger_fp.write(json.dumps({"ck": job["ck"], "class": "COMPLETE_REJECTED", "counted": False,
-                                                  "reason": reason, "actor": actor.idx, "plan": actor.plan,
-                                                  "t": round(time.monotonic() - actor.t0, 3)}) + "\n")
-                    M.ledger_fp.flush()
+                reason = det.get("validationResult") or outcome
+                record_rejected(
+                    job,
+                    actor,
+                    reason,
+                    time.monotonic() - actor.t0,
+                )
                 actor.made_final = True
     return None
 
 
 async def actor_task(actor, q, billing, deadline, ad, sd, pd_, ctl, t0, rem_cap):
-    actor.searches = 0; actor.reauths = 0; actor.wd_streak = 0; actor.retry_after = None
-    actor.t0 = t0; actor.born = time.monotonic()
-    reason = None
-    while time.monotonic() < deadline and actor.alive:
-        try: job = q.get_nowait()
-        except asyncio.QueueEmpty:
-            await asyncio.sleep(0.02); continue
-        actor.made_final = False
-        out = await run_one(actor, job, billing, ad, sd, pd_, ctl, rem_cap)
-        if out:
-            reason = out; break
-    if reason is None:
-        reason = "deadline"
-    actor.alive = False
-    if reason.startswith("quarantined"): M.quarantined += 1
-    elif reason == "watchdog_stalled": M.watchdog_stalled += 1
-    else: M.completed += 1
-    M.active -= 1
-    try:
-        if actor.s: await actor.s.close()
-    except Exception: pass
-    M.per_actor.append({"actor": actor.idx, "plan": actor.plan, "searches": actor.searches,
-                        "reauths": actor.reauths, "lifetime_s": round(time.monotonic() - actor.born, 2),
-                        "terminal": reason, "retry_after": actor.retry_after})
+    actor.searches = 0
+    actor.reauths = 0
+    actor.wd_streak = 0
+    actor.retry_after = None
+    actor.t0 = t0
+    actor.born = time.monotonic()
+    actor.current_job = None
+    reason = "deadline"
 
+    try:
+        while time.monotonic() < deadline and actor.alive:
+            try:
+                job = q.get_nowait()
+            except asyncio.QueueEmpty:
+                await asyncio.sleep(0.02)
+                continue
+
+            actor.current_job = job
+            actor.made_final = False
+
+            out = await run_one(
+                actor, job, billing, ad, sd, pd_, ctl, rem_cap
+            )
+
+            ck = job.get("ck")
+            if (
+                ck is not None
+                and ck not in M.done
+                and ck not in M.seen
+                and ck not in M.retry_keys
+            ):
+                record_retryable(
+                    job, "incomplete_disposition", actor,
+                    "run_one_returned_without_durable_disposition"
+                )
+            actor.current_job = None
+
+            if out:
+                reason = out
+                break
+    
+    except asyncio.CancelledError:
+        reason = "cancelled"
+        job = actor.current_job
+
+        if job is not None:
+            ck = job.get("ck")
+            if (
+                ck is not None
+                and ck not in M.done
+                and ck not in M.seen
+                and ck not in M.retry_keys
+            ):
+                record_retryable(
+                    job, "cancelled", actor, "actor_task_cancelled"
+                )
+
+        raise
+
+    except Exception as exc:
+        reason = "actor_error"
+        job = actor.current_job
+
+        if job is not None:
+            ck = job.get("ck")
+            if (
+                ck is not None
+                and ck not in M.done
+                and ck not in M.seen
+                and ck not in M.retry_keys
+            ):
+                record_retryable(job, "actor_error", actor, exc)
+
+        raise
+
+    finally:
+        actor.current_job = None
+        actor.alive = False
+
+        if reason.startswith("quarantined"):
+            M.quarantined += 1
+        elif reason == "watchdog_stalled":
+            M.watchdog_stalled += 1
+        elif reason not in ("cancelled", "actor_error"):
+            M.completed += 1
+
+        M.active = max(0, M.active - 1)
+
+        try:
+            if actor.s:
+                await actor.s.close()
+        except Exception:
+            pass
+
+        M.per_actor.append({
+            "actor": actor.idx,
+            "plan": actor.plan,
+            "searches": actor.searches,
+            "reauths": actor.reauths,
+            "lifetime_s": round(time.monotonic() - actor.born, 2),
+            "terminal": reason,
+            "retry_after": actor.retry_after,
+        })
 
 def pct(xs, p):
     if not xs: return None
     s = sorted(xs); return round(s[min(len(s) - 1, int(round(p * (len(s) - 1))))], 3)
 
-
-def cold_reopen(ledger_path):
-    seen = set(); counted = other = fdups = 0
+def load_terminal_keys(ledger_path):
+    """Load previously completed keys. Retryable rows do not belong in this ledger."""
+    done = set()
     try:
-        for line in open(ledger_path):
-            line = line.strip()
-            if not line: continue
-            r = json.loads(line); ck = r.get("ck")
-            if ck in seen: fdups += 1; continue
-            seen.add(ck)
-            if r.get("counted"): counted += 1
-            else: other += 1
+        with open(ledger_path, "r", encoding="utf-8") as fp:
+            for line_no, line in enumerate(fp, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(
+                        f"Invalid terminal ledger JSON at {ledger_path}:{line_no}"
+                    ) from exc
+
+                ck = row.get("ck")
+                if ck is not None:
+                    done.add(ck)
     except FileNotFoundError:
         pass
-    return {"reopened_unique": len(seen), "reopened_counted": counted, "reopened_other": other,
-            "reopened_file_dups": fdups,
-            "matches_memory": bool(len(seen) == len(M.seen) and counted == M.counted and other == (M.other_durable + M.rejected) and fdups == 0)}
+    return done
+
+def cold_reopen(ledger_path, run_start=0):
+    seen = set();
+    counted = other = fdups = 0
+    
+    try:
+        with open(ledger_path, "r", encoding="utf-8") as fp:
+            fp.seek(run_start)
+            for line in fp:
+                line = line.strip()
+                if not line:
+                    continue
+
+                row = json.loads(line)
+                ck = row.get("ck")
+                if ck is None:
+                    continue
+                if ck in seen:
+                    fdups += 1
+                    continue
+
+                seen.add(ck)
+                if row.get("counted"):
+                    counted += 1
+                else: other += 1
+    except FileNotFoundError:
+        pass
+
+    return {
+        "reopened_unique": len(seen),
+        "reopened_counted": counted,
+        "reopened_other": other,
+        "reopened_file_dups": fdups,
+        "matches_memory": (
+            len(seen) == len(M.seen)
+            and counted == M.counted
+            and other == (M.other_durable + M.rejected)
+            and fdups == 0
+        ),
+    }
 
 
 async def main():
@@ -561,6 +803,7 @@ async def main():
     _canary = json.load(open(a.canary)) if (getattr(a, "canary", None) and os.path.exists(a.canary)) else {}
     if not ReadinessGate().open_if_ready(_canary):
         print("FINAL " + json.dumps({"label": a.label, "fatal": "readiness gate: an approved end-to-end qualification canary (auth 201 -> search 200 -> product 200 -> terminal) is required; auth 201 alone cannot reopen production"}), flush=True); return
+    M.reset()
     cfg = json.load(open(os.path.join(os.environ["FL_CONFIG"], "billing_config.json"))).get("billing_status_mapping", {})
     billing = ({v.strip().upper() for v in cfg.get("existing_values", [])}, {v.strip().upper() for v in cfg.get("new_values", [])})
     _rjson = os.path.join(HERE, "residential.json")
@@ -569,15 +812,31 @@ async def main():
     pools = [p for p in json.load(open(_rjson))["pools"] if str(p.get("name", "")).startswith("dataimpulse")]
     raw = [json.loads(l) for l in open(a.addrs)]
     # GLOBAL DEDUP before any HTTP: exactly one actor may own a canonical address.
-    seen_ck = set(); addrs = []
+    seen_ck = set()
+    unique_addrs = []
     for r in raw:
         ck = r.get("ck")
-        if ck in seen_ck: continue
-        seen_ck.add(ck); addrs.append(r)
-    dup_input = len(raw) - len(addrs)
+        if ck in seen_ck:
+            continue
+        seen_ck.add(ck)
+        unique_addrs.append(r)
+
+    dup_input = len(raw) - len(unique_addrs)
+    M.done = load_terminal_keys(a.ledger)
+    addrs = [r for r in unique_addrs if r.get("ck") not in M.done]
+    resume_skipped = len(unique_addrs) - len(addrs)
+
     q = asyncio.Queue()
-    for r in addrs: q.put_nowait(r)
-    M.ledger_fp = open(a.ledger, "w"); M.retry_fp = open(a.retry_ledger or (a.ledger + ".retry"), "w")
+    for r in addrs:
+        q.put_nowait(r)
+
+    # Preserve existing evidence across restarts.
+    M.ledger_fp = open(a.ledger, "a+", encoding="utf-8")
+    M.ledger_fp.seek(0, os.SEEK_END)
+    ledger_run_start = M.ledger_fp.tell()
+    
+    M.retry_fp = open(a.retry_ledger or (a.ledger + ".retry"), "a", encoding="utf-8")
+    
     # ---- PREWARM (staggered, US-verified, auth-once; excluded from active timing) ----
     tpw = time.monotonic()
     actors = [Actor(i, i % len(pools)) for i in range(a.actors)]
@@ -588,8 +847,18 @@ async def main():
           "prewarm_auth": M.prewarm_auth, "prewarm_s": round(time.monotonic() - tpw, 1),
           "auth_p50": pct(M.alat, 0.5), "input_addrs": len(addrs)}), flush=True)
     if not live:
-        print("FINAL " + json.dumps({"label": a.label, "fatal": "no actors warmed", "requested": a.actors, "prewarm_auth": M.prewarm_auth}), flush=True)
-        print("LEVEL_DONE", flush=True); return
+        M.ledger_fp.close()
+        M.retry_fp.close()
+        print("FINAL " + json.dumps({
+            "label": a.label,
+            "fatal": "no actors warmed",
+            "requested": a.actors,
+            "prewarm_auth": M.prewarm_auth,
+            "input_addrs": len(addrs),
+            "resume_skipped": resume_skipped,
+        }), flush=True)
+        print("LEVEL_DONE", flush=True)
+        return
     # ---- ACTIVE RUN ----
     ctl = AdmissionController(); mon = asyncio.create_task(ctl.monitor())
     t0 = time.monotonic(); deadline = t0 + a.hold
@@ -607,25 +876,53 @@ async def main():
     for t in tasks: t.cancel()
     await asyncio.gather(*tasks, mon, return_exceptions=True)
     active_s = time.monotonic() - t0
-    M.ledger_fp.close(); M.retry_fp.close()
-    recon = cold_reopen(a.ledger)
-    # In-flight-at-cutoff: an address whose actor was cancelled mid-workflow at the deadline
-    # is NOT lost — it is retryable/unresolved. Reconcile it so nothing is unaccounted.
-    in_flight = max(0, M.consumed - (M.counted + M.other_durable + M.rejected + M.unresolved + M.retryable + M.dups))
-    M.retryable += in_flight
-    accounted = M.counted + M.other_durable + M.rejected + M.unresolved + M.retryable + M.dups
+    M.ledger_fp.close()
+    M.retry_fp.close()
+
+    recon = cold_reopen(a.ledger, ledger_run_start)
+    
+    # Reconcile unique input keys, not processing attempts.
+    input_keys = {r.get("ck") for r in addrs}
+    terminal_keys = set(M.seen)
+    retry_keys = set(M.retry_keys)
+    queued_keys = {job.get("ck") for job in list(q._queue)}
+
+    terminal_in_run = terminal_keys & input_keys
+    retryable_in_run = retry_keys & input_keys
+    queued_in_run = queued_keys & input_keys
+
+    accounted_keys = terminal_in_run | retryable_in_run | queued_in_run
+    unaccounted_keys = input_keys - accounted_keys
+    unexpected_keys = accounted_keys - input_keys
+
+    category_total = (
+        len(terminal_in_run)
+        + len(retryable_in_run)
+        + len(queued_in_run)
+    )
+    category_overlap = category_total - len(accounted_keys)
+
+    accounted = len(accounted_keys)
+    unaccounted = len(unaccounted_keys)
+
     in_run_calls = M.reauth + M.total_search() + M.product
     # CORRECTED metric (directive): a durable decision = COMPLETE_DELIVERABLE + COMPLETE_REJECTED.
     deliverable = M.by_class.get("SERVICEABLE_FIBER", 0)
     rejected_total = (M.counted - deliverable) + M.other_durable + M.rejected   # nonfiber/existing/oot/no-plan/pending + non-exact/nomatch
     durable = deliverable + rejected_total
-    incomplete = M.retryable + M.unresolved
+    incomplete = len(retryable_in_run) + len(queued_in_run)
     ts = M.total_search()
     final = {"label": a.label, "actors_warmed": len(live), "active_s": round(active_s, 1),
              # ---- CORRECTED success metric: new unique durable (deliverable + rejected) / active s ----
              "durable_decisions": durable, "durable_per_s": round(durable / active_s, 3) if active_s else 0,
              "complete_deliverable": deliverable, "complete_rejected": rejected_total,
-             "incomplete_retryable": incomplete,
+             "incomplete_retryable": len(retryable_in_run),
+             "queued_remaining": len(queued_in_run),
+             "incomplete_remaining": incomplete,
+             "resume_skipped": resume_skipped,
+             "input_unique": len(input_keys),
+             "category_overlap": category_overlap,
+             "unexpected_keys": len(unexpected_keys),
              "corrected_decisions_per_search": round(durable / max(1, ts), 4),
              "deliverable_per_s": round(deliverable / active_s, 3) if active_s else 0,
              # ---- OLD (deliverable-lead-only) metric, for the OLD/NEW comparison ----
@@ -639,7 +936,8 @@ async def main():
              "remediation_fraction": round(M.remediation_search / max(1, M.total_search()), 3),
              "exact_matches": M.exact_match, "non_exact": M.non_exact,
              "exact_fraction": round(M.exact_match / max(1, M.exact_match + M.non_exact), 3),
-             "input_dedup_removed": dup_input, "in_flight_at_cutoff": in_flight, "usps_normalized": True,
+             "input_dedup_removed": dup_input,
+             "usps_normalized": True,
              "calls_per_counted_decision": round(in_run_calls / M.counted, 1) if M.counted else None,
              "auth_per_1000_addr": round(1000.0 * (M.prewarm_auth + M.reauth) / max(1, M.consumed), 1),
              "s401": M.s401, "s403": M.s403, "s429": M.s429, "watchdog_expiries": M.watchdog, "transport": M.transport,
@@ -648,7 +946,7 @@ async def main():
              "auth_p50": pct(M.alat, 0.50), "auth_p95": pct(M.alat, 0.95),
              "actors_active_end": M.active, "actors_completed": M.completed, "actors_quarantined": M.quarantined,
              "actors_watchdog_stalled": M.watchdog_stalled,
-             "consumed": M.consumed, "accounted": accounted, "unaccounted": M.consumed - accounted,
+             "consumed": M.consumed, "accounted": accounted, "unaccounted": unaccounted,
              "dups": M.dups, "cold_reopen": recon, "backlog_start": backlog0, "backlog_end": q.qsize(),
              "searches_before_restriction": sorted([p["searches"] for p in M.per_actor if str(p["terminal"] or "").startswith("quarantined")]),
              "per_actor_sample": M.per_actor[:40]}
