@@ -55,7 +55,7 @@ check("drain preserves all 3 (2 queued + 1 leased), none lost", cks == [0, 1, 2]
 # simulate restart: re-enqueue drained; complete the previously leased one -> no duplicate
 q2 = BoundedStageQueue(maxsize=10)
 for p in pending: q2.put(p)
-check("restart re-enqueues preserved work idempotently", q2.qsize() == 3)
+check("restart re-enqueues all preserved work", q2.qsize() == 3)
 
 print("[readiness gate: auth-201-alone cannot reopen; end-to-end required]")
 g = ReadinessGate()

@@ -119,12 +119,162 @@ async def test_cancelled_actor_recovers_lease():
             except OSError:
                 pass
 
+def test_retry_superseded_by_final():
+    F.M.reset()
+    actor = F.Actor(1, 0)
+    actor.plan = "TEST_PLAN"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ledger_path = os.path.join(tmp, "ledger.json1")
+        retry_path = os.path.join(tmp, "retry.json1")
+
+        try:
+            with open(ledger_path, "w", encoding="utf-8") as ledger, \
+                 open(retry_path, "w", encoding="utf-8") as retry:
+
+                F.M.ledger_fp = ledger
+                F.M.retry_fp = retry
+
+                job = {"ck": "FINAL-1"}
+                F.record_retryable(job, "search", actor, "test_timeout")
+
+                F.record_final(
+                    "FINAL-1",
+                    "SERVICEABLE_FIBER",
+                    actor,
+                    {"t": 1.0, "evidence_sha256": "test-hash"}
+                )
+
+                F.record_final(
+                    "FINAL-1",
+                    "SERVICEABLE_FIBER",
+                    actor,
+                    {"t": 2.0, "evidence_sha256": "test-hash"}
+                )
+        finally:
+            F.M.ledger_fp = None
+            F.M.retry_fp = None
+        with open(ledger_path, encoding="utf-8") as fp:
+            rows = [
+                json.loads(line)
+                for line in fp
+                if line.strip()
+            ]
+        recon = F.cold_reopen(ledger_path)
+
+        check(
+            "terminal decision supersedes retry exactly once",
+            F.M.retryable == 0
+            and not F.M.retry_keys
+            and F.M.seen == {"FINAL-1": "SERVICEABLE_FIBER"}
+        )
+
+        check(
+            "duplicate terminal does not write another ledger row",
+            len(rows) == 1 and F.M.dups == 1
+        )
+        check(
+            "terminal cold-reopen matches memory",
+            recon["matches_memory"]
+        )
+
+def test_retry_superseded_by_rejection():
+    F.M.reset()
+    actor = F.Actor(2, 0)
+    actor.plan = "TEST_PLAN"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ledger_path = os.path.join(tmp, "ledger_json1")
+        retry_path = os.path.join(tmp, "retry_json1")
+
+        try:
+            with open(ledger_path, "w", encoding="utf-8") as ledger, \
+                 open(retry_path, "w", encoding="utf-8") as retry:
+
+                F.M.ledger_fp = ledger
+                F.M.retry_fp = retry
+
+                job = {"ck": "REJECT-1"}
+                F.record_retryable(job, "search", actor, "test_timeout")
+                F.record_rejected(job, actor, "non_definitive_answer", 1.5)
+
+                F.record_rejected(job, actor, "duplicate", 2.0)
+        finally:
+            F.M.ledger_fp = None
+            F.M.retry_fp = None
+        with open(ledger_path, encoding="utf-8") as fp:
+            rows = [
+                json.loads(line)
+                for line in fp
+                if line.strip()
+            ]
+        recon = F.cold_reopen(ledger_path)
+
+        check(
+            "completed rejection supersedes retry",
+            F.M.retryable == 0
+            and not F.M.retry_keys
+            and F.M.rejected == 1
+        )
+        check(
+            "duplicate rejection does not increment durable count",
+            len(rows) == 1
+            and rows[0]["class"] == "COMPLETE_REJECTED"
+            and F.M.by_class["COMPLETE_REJECTED"] == 1
+        )
+        check(
+            "rejection cold-reopen matches memory",
+            recon["matches_memory"]
+        )
+
+def test_cold_reopen_detects_corruption():
+    F.M.reset()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ledger_path = os.path.join(tmp, "ledger.json1")
+        row = {
+            "ck": "DUP-1",
+            "class": "SERVICEABLE_FIBER",
+            "counted": True
+        }
+
+        with open(ledger_path, "w", encoding="utf-8") as fp:
+            fp.write(json.dumps(row) + "\n")
+            fp.write(json.dumps(row) + "\n")
+
+        F.M.seen = {"DUP-1": "SERVICEABLE_FIBER"}
+        F.M.counted = 1
+
+        recon = F.cold_reopen(ledger_path)
+
+        check(
+            "cold-reopen detects duplicate ledger keys",
+            recon["reopened_file_dups"] == 1
+            and not recon["matches_memory"]
+        )
+
+        with open(ledger_path, "w", encoding="utf-8") as fp:
+            fp.write(json.dumps(row) + "\n")
+
+        F.M.counted = 0
+        recon = F.cold_reopen(ledger_path)
+
+        check(
+            "cold-reopen detects counter mismatch",
+            not recon["matches_memory"]
+        )
+
+
 if os.name == "nt":
     asyncio.set_event_loop_policy(
         asyncio.WindowsSelectorEventLoopPolicy()
     )
 
 asyncio.run(test_cancelled_actor_recovers_lease())
+
+test_retry_superseded_by_final()
+test_retry_superseded_by_rejection()
+test_cold_reopen_detects_corruption()
 
 print("\nRESULT: %d passed, %d failed" % (P, FAIL))
 sys.exit(1 if FAIL else 0)
