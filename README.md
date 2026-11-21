@@ -101,7 +101,7 @@ The full rules are documented in
     require project-owner review and explicit approval; do not bypass or
     weaken the startup hash gate.
 
-## Engineering work update --- November 21, 2026
+## Engineering work update --- November 20, 2026
 
 The following offline validation and test-maintenance work was
 completed:
